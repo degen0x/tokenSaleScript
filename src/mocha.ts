@@ -6,6 +6,8 @@ import {clusterApiUrl, Keypair, PublicKey} from "@solana/web3.js";
 import {BN} from "bn.js";
 import bs58 from "bs58"
 import {
+    createAssociatedTokenAccount,
+    getAccount,
     getAssociatedTokenAddress,
     getOrCreateAssociatedTokenAccount,
     mintTo,
@@ -15,7 +17,8 @@ describe("tokenSale", () => {
     const connection = new web3.Connection(clusterApiUrl("devnet"));
     const adminKeypair = web3.Keypair.fromSecretKey(Uint8Array.from([44,80,171,173,241,101,64,139,192,26,111,88,60,120,80,114,200,96,47,191,160,50,198,195,122,228,56,19,171,55,90,146,5,197,173,76,91,118,205,122,8,208,252,198,84,160,163,53,125,204,227,30,240,83,34,80,16,56,9,126,211,173,107,230]));
     // enter your secret key
-    const userKeypair = web3.Keypair.fromSecretKey(bs58.decode(<enter your private key>));
+    const userKeypair = web3.Keypair.fromSecretKey(bs58.decode("<enter your private key>"));
+
     const wallet = new Wallet(userKeypair);
 
     const provider = new anchor.AnchorProvider(connection, wallet)
@@ -43,11 +46,31 @@ describe("tokenSale", () => {
 
     it.only("Buy", async () => {
 
-        const userUsdtAta = await getOrCreateAssociatedTokenAccount(connection, userKeypair, myUsdtMint, provider.publicKey);
-        const userUsdcAta = await getOrCreateAssociatedTokenAccount(connection, userKeypair, myUsdcMint, provider.publicKey);
+        const userUsdtAta = await getAssociatedTokenAddress(myUsdtMint, userKeypair.publicKey);
+        const userUsdcAta = await getAssociatedTokenAddress(myUsdcMint, userKeypair.publicKey);
 
-        await mintTo(connection, userKeypair, myUsdtMint, userUsdtAta.address, adminKeypair, 100000000000)
-        await mintTo(connection, userKeypair, myUsdcMint, userUsdcAta.address, adminKeypair, 100000000000)
+        try {
+            await getAccount(connection, userUsdtAta);
+        } catch (e) {
+            if (e.name === "TokenAccountNotFoundError") {
+                await createAssociatedTokenAccount(connection, userKeypair, myUsdtMint, userKeypair.publicKey, {commitment: "finalized"})
+            } else {
+                throw e;
+            }
+        }
+
+        try {
+            await getAccount(connection, userUsdcAta);
+        } catch (e) {
+            if (e.name === "TokenAccountNotFoundError") {
+                await createAssociatedTokenAccount(connection, userKeypair, myUsdcMint, userKeypair.publicKey, {commitment: "finalized"})
+            } else {
+                throw e;
+            }
+        }
+
+        await mintTo(connection, userKeypair, myUsdtMint, userUsdtAta, adminKeypair, 100000000000);
+        await mintTo(connection, userKeypair, myUsdcMint, userUsdcAta, adminKeypair, 100000000000);
 
         const configUsdtAta = await getAssociatedTokenAddress(myUsdtMint, config, true);
         const configUsdcAta = await getAssociatedTokenAddress(myUsdcMint, config, true);
@@ -60,7 +83,7 @@ describe("tokenSale", () => {
             .accounts({
                 payer: userKeypair.publicKey,
                 mint: mint,
-                userStableAta: userUsdcAta.address,
+                userStableAta: userUsdcAta,
                 vaultStableAta: configUsdcAta,
             })
             // .simulate();
